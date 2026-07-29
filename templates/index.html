@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionOCR - Text Detection & Extraction</title>
+    <meta name="description" content="Extract text and detect bounding boxes from images using OpenCV and Tesseract OCR in Python Flask.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="brand-icon">
+                    <i data-lucide="scan-text"></i>
+                </div>
+                <div class="brand-text">
+                    <h1>Vision<span>OCR</span></h1>
+                    <p>OpenCV & Tesseract Text Detection Studio</p>
+                </div>
+            </div>
+            <div class="system-status">
+                <span class="status-badge"><span class="pulse"></span> Engine Active</span>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- Upload Section -->
+            <section class="upload-section">
+                <form id="ocr-form" action="/process" method="POST" enctype="multipart/form-data">
+                    <div class="drop-zone" id="drop-zone">
+                        <input type="file" name="image" id="file-input" accept="image/png, image/jpeg, image/jpg, image/webp, image/bmp, application/pdf" class="file-input">
+                        
+                        <div class="drop-zone-content" id="drop-zone-prompt">
+                            <div class="upload-icon-wrapper">
+                                <i data-lucide="upload-cloud"></i>
+                            </div>
+                            <h3>Drag & drop your file here</h3>
+                            <p class="drop-subtitle">Images: JPG, PNG, WEBP, BMP &nbsp;|&nbsp; Documents: PDF (Max 32MB)</p>
+                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('file-input').click()">
+                                <i data-lucide="upload"></i> Browse File
+                            </button>
+                        </div>
+
+                        <!-- Selected File Preview -->
+                        <div class="file-preview-container hidden" id="file-preview-container">
+                            <div class="preview-thumbnail-wrapper" id="preview-thumbnail-wrapper">
+                                <img id="file-preview-img" src="" alt="Selected Preview">
+                                <!-- PDF icon shown instead of image thumbnail for PDFs -->
+                                <div id="pdf-thumb-icon" class="hidden pdf-thumb-icon">
+                                    <i data-lucide="file-text"></i>
+                                    <span>PDF</span>
+                                </div>
+                            </div>
+                            <div class="file-details">
+                                <span id="file-name" class="file-name">filename.jpg</span>
+                                <span id="file-size" class="file-size">0 KB</span>
+                            </div>
+                            <button type="button" id="btn-remove-file" class="btn-icon" title="Remove image">
+                                <i data-lucide="x"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" id="btn-submit" class="btn btn-primary btn-large" disabled>
+                            <i data-lucide="sparkles"></i> Process & Detect Text
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Loading State -->
+                <div id="loading-overlay" class="loading-overlay hidden">
+                    <div class="spinner-box">
+                        <div class="pulse-ring"></div>
+                        <i data-lucide="loader-2" class="spin-icon"></i>
+                    </div>
+                    <h4 id="loading-title">Analyzing & Detecting Text...</h4>
+                    <p id="loading-subtitle">Running OpenCV contours & PyTesseract engine</p>
+                </div>
+
+                <!-- Error Alert -->
+                <div id="error-banner" class="alert alert-danger {% if not error %}hidden{% endif %}">
+                    <i data-lucide="alert-circle"></i>
+                    <span id="error-message">{{ error if error else '' }}</span>
+                </div>
+            </section>
+
+            <!-- Results Workspace -->
+            <section id="results-section" class="results-section {% if not result %}hidden{% endif %}">
+                <!-- Stats Overview Bar -->
+                <div class="stats-bar" id="stats-bar">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i data-lucide="box"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Detected Regions</span>
+                            <span class="stat-value" id="stat-regions">{{ result.stats.detected_regions if result else '0' }}</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i data-lucide="file-text"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Word Count</span>
+                            <span class="stat-value" id="stat-words">{{ result.stats.word_count if result else '0' }}</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i data-lucide="shield-check"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Avg Confidence</span>
+                            <span class="stat-value" id="stat-confidence">{{ result.stats.avg_confidence if result else '0' }}%</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i data-lucide="maximize-2"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label" id="stat-dimensions-label">Image Dimensions</span>
+                            <span class="stat-value" id="stat-dimensions">{{ result.stats.image_size if result else '-' }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dual View Grid -->
+                <div class="results-grid">
+                    <!-- Left: Processed Bounding Box Image -->
+                    <div class="panel image-panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <i data-lucide="eye"></i> Bounding Box Detection Result
+                            </div>
+                            <div class="view-toggle">
+                                <button type="button" id="btn-toggle-view" class="btn-sm btn-outline" data-mode="processed">
+                                    <i data-lucide="layers"></i> Show Original
+                                </button>
+                            </div>
+                        </div>
+                        <!-- PDF Page Navigator (hidden for images) -->
+                        <div id="pdf-page-nav" class="pdf-page-nav hidden">
+                            <button type="button" id="btn-prev-page" class="btn-sm btn-outline" disabled>
+                                <i data-lucide="chevron-left"></i>
+                            </button>
+                            <span id="pdf-page-label">Page 1 of 1</span>
+                            <button type="button" id="btn-next-page" class="btn-sm btn-outline">
+                                <i data-lucide="chevron-right"></i>
+                            </button>
+                        </div>
+                        <div class="panel-body image-container">
+                            <img id="result-processed-img" src="{{ result.processed_image if result else '' }}" alt="OCR Detected Bounding Boxes">
+                            <img id="result-original-img" src="{{ result.original_image if result else '' }}" class="hidden" alt="Original Uploaded Image">
+                        </div>
+                    </div>
+
+                    <!-- Right: Extracted Text Workspace -->
+                    <div class="panel text-panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <i data-lucide="align-left"></i> Extracted OCR Text
+                            </div>
+                            <div class="panel-actions">
+                                <button type="button" id="btn-copy" class="btn-sm btn-action" title="Copy text to clipboard">
+                                    <i data-lucide="copy"></i> Copy Text
+                                </button>
+                                <button type="button" id="btn-download" class="btn-sm btn-action" title="Download text file">
+                                    <i data-lucide="download"></i> Download .txt
+                                </button>
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <textarea id="extracted-text-area" readonly placeholder="Extracted text will appear here...">{{ result.extracted_text if result else '' }}</textarea>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Powered by <strong>Flask</strong>, <strong>OpenCV</strong>, and <strong>Tesseract OCR</strong></p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
